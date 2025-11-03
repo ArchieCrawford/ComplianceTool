@@ -1,0 +1,318 @@
+import React, { useState } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { 
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from "recharts";
+import { TrendingUp, Calendar } from "lucide-react";
+import { format } from "date-fns";
+import ExportButton from "../components/ExportButton";
+
+export default function HistoryPage() {
+  const [metricType, setMetricType] = useState("compliance");
+
+  const { data: uploads = [] } = useQuery({
+    queryKey: ['uploads-history'],
+    queryFn: () => base44.entities.DataUpload.list('-snapshot_date')
+  });
+
+  const { data: devices = [] } = useQuery({
+    queryKey: ['devices-history'],
+    queryFn: () => base44.entities.Device.list('-snapshot_date'),
+    enabled: uploads.length > 0
+  });
+
+  const { data: standards = [] } = useQuery({
+    queryKey: ['standards-history'],
+    queryFn: () => base44.entities.Standard.list('-snapshot_date'),
+    enabled: uploads.length > 0 && metricType === "standards"
+  });
+
+  const uploadsByDate = uploads.reduce((acc, upload) => {
+    acc[upload.snapshot_date] = upload;
+    return acc;
+  }, {});
+
+  const complianceData = Object.entries(
+    devices.reduce((acc, device) => {
+      const date = device.snapshot_date;
+      if (!acc[date]) {
+        acc[date] = { date, compliant: 0, nonCompliant: 0, total: 0, avgPercent: [] };
+      }
+      acc[date].total++;
+      acc[date].avgPercent.push(device.percent_passing || 0);
+      if (device.compliance_status === 'Compliant') {
+        acc[date].compliant++;
+      } else {
+        acc[date].nonCompliant++;
+      }
+      return acc;
+    }, {})
+  ).map(([date, data]) => ({
+    date: format(new Date(date), 'MMM d, yyyy'),
+    compliant: data.compliant,
+    nonCompliant: data.nonCompliant,
+    total: data.total,
+    avgPercent: (data.avgPercent.reduce((a, b) => a + b, 0) / data.avgPercent.length).toFixed(1),
+    complianceRate: ((data.compliant / data.total) * 100).toFixed(1)
+  })).sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  const standardsData = Object.entries(
+    standards.reduce((acc, standard) => {
+      const date = standard.snapshot_date;
+      if (!acc[date]) {
+        acc[date] = { date, standards: {} };
+      }
+      const key = `${standard.standard} - ${standard.profile}`;
+      acc[date].standards[key] = standard.avg_percent_passing;
+      return acc;
+    }, {})
+  ).map(([date, data]) => ({
+    date: format(new Date(date), 'MMM d, yyyy'),
+    ...data.standards
+  })).sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  const uploadsExportColumns = [
+    { key: 'snapshot_date', label: 'Snapshot Date' },
+    { key: 'file_name', label: 'File Name' },
+    { key: 'devices_processed', label: 'Devices Processed' },
+    { key: 'processing_status', label: 'Status' },
+    { key: 'created_date', label: 'Uploaded At' }
+  ];
+
+  const complianceExportColumns = [
+    { key: 'date', label: 'Date' },
+    { key: 'total', label: 'Total Devices' },
+    { key: 'compliant', label: 'Compliant' },
+    { key: 'nonCompliant', label: 'Non-Compliant' },
+    { key: 'complianceRate', label: 'Compliance Rate %' },
+    { key: 'avgPercent', label: 'Avg Percent Passing' }
+  ];
+
+  return (
+    <div className="p-6 md:p-8 space-y-6">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900 mb-2">History & Trends</h1>
+          <p className="text-slate-600">Track compliance changes over time</p>
+        </div>
+        <div className="flex gap-3">
+          {metricType === "compliance" && complianceData.length > 0 && (
+            <ExportButton 
+              data={complianceData}
+              filename="compliance_trends"
+              columns={complianceExportColumns}
+            />
+          )}
+          {metricType === "standards" && standardsData.length > 0 && (
+            <ExportButton 
+              data={standardsData}
+              filename="standards_trends"
+            />
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="w-full md:w-64">
+          <Label htmlFor="metric">View</Label>
+          <Select value={metricType} onValueChange={setMetricType}>
+            <SelectTrigger id="metric">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="compliance">Compliance Trends</SelectItem>
+              <SelectItem value="standards">Standards Performance</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card className="border-slate-200 shadow-lg">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-2">
+              <Calendar className="w-4 h-4" />
+              Total Snapshots
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-slate-900">{uploads.length}</div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-lg">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-2">
+              <TrendingUp className="w-4 h-4" />
+              Latest Avg %
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-blue-600">
+              {complianceData.length > 0 ? complianceData[complianceData.length - 1].avgPercent : 0}%
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-lg">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-slate-600">Compliance Rate</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-green-600">
+              {complianceData.length > 0 ? complianceData[complianceData.length - 1].complianceRate : 0}%
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {metricType === "compliance" && complianceData.length > 0 && (
+        <>
+          <Card className="border-slate-200 shadow-lg">
+            <CardHeader>
+              <CardTitle>Average Compliance % Over Time</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <AreaChart data={complianceData}>
+                  <defs>
+                    <linearGradient id="colorPercent" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="date" stroke="#64748b" />
+                  <YAxis domain={[0, 100]} stroke="#64748b" />
+                  <Tooltip />
+                  <Area 
+                    type="monotone" 
+                    dataKey="avgPercent" 
+                    stroke="#3b82f6" 
+                    strokeWidth={3}
+                    fillOpacity={1} 
+                    fill="url(#colorPercent)" 
+                    name="Avg %" 
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-200 shadow-lg">
+            <CardHeader>
+              <CardTitle>Compliance Status Trend</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={complianceData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="date" stroke="#64748b" />
+                  <YAxis stroke="#64748b" />
+                  <Tooltip />
+                  <Legend />
+                  <Line 
+                    type="monotone" 
+                    dataKey="compliant" 
+                    stroke="#10b981" 
+                    strokeWidth={3}
+                    name="Compliant" 
+                    dot={{ r: 4 }}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="nonCompliant" 
+                    stroke="#ef4444" 
+                    strokeWidth={3}
+                    name="Non-Compliant" 
+                    dot={{ r: 4 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      {metricType === "standards" && standardsData.length > 0 && (
+        <Card className="border-slate-200 shadow-lg">
+          <CardHeader>
+            <CardTitle>Standards Performance Over Time</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={400}>
+              <LineChart data={standardsData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="date" stroke="#64748b" />
+                <YAxis domain={[0, 100]} stroke="#64748b" />
+                <Tooltip />
+                <Legend />
+                {Object.keys(standardsData[0] || {}).filter(k => k !== 'date').map((key, idx) => (
+                  <Line 
+                    key={key}
+                    type="monotone" 
+                    dataKey={key} 
+                    stroke={['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'][idx % 5]}
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card className="border-slate-200 shadow-lg">
+        <CardHeader>
+          <div className="flex justify-between items-center">
+            <CardTitle>Upload History</CardTitle>
+            <ExportButton 
+              data={uploads}
+              filename="upload_history"
+              columns={uploadsExportColumns}
+            />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-slate-200">
+                  <th className="text-left p-3 text-sm font-semibold text-slate-700">Date</th>
+                  <th className="text-left p-3 text-sm font-semibold text-slate-700">File Name</th>
+                  <th className="text-right p-3 text-sm font-semibold text-slate-700">Devices</th>
+                  <th className="text-left p-3 text-sm font-semibold text-slate-700">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {uploads.map((upload) => (
+                  <tr key={upload.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                    <td className="p-3 text-slate-900">
+                      {format(new Date(upload.snapshot_date), 'MMM d, yyyy')}
+                    </td>
+                    <td className="p-3 text-slate-600">{upload.file_name}</td>
+                    <td className="p-3 text-right font-medium text-slate-900">{upload.devices_processed}</td>
+                    <td className="p-3">
+                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        {upload.processing_status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

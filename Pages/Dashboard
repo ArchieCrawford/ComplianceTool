@@ -1,0 +1,189 @@
+import React from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Monitor, CheckCircle2, XCircle, TrendingUp } from "lucide-react";
+import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+
+const COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6'];
+
+export default function DashboardPage() {
+  const { data: devices = [], isLoading } = useQuery({
+    queryKey: ['devices-latest'],
+    queryFn: async () => {
+      const uploads = await base44.entities.DataUpload.list('-created_date', 1);
+      if (uploads.length === 0) return [];
+      return base44.entities.Device.filter({ upload_id: uploads[0].id });
+    }
+  });
+
+  const totalDevices = devices.length;
+  const avgPercent = devices.length > 0 
+    ? (devices.reduce((sum, d) => sum + (d.percent_passing || 0), 0) / devices.length).toFixed(1)
+    : 0;
+  const compliantCount = devices.filter(d => d.compliance_status === 'Compliant').length;
+  const nonCompliantCount = devices.filter(d => d.compliance_status === 'Non-Compliant').length;
+
+  const osCounts = devices.reduce((acc, device) => {
+    const os = device.os || 'Unknown';
+    acc[os] = (acc[os] || 0) + 1;
+    return acc;
+  }, {});
+  const osData = Object.entries(osCounts).map(([name, value]) => ({ name, value }));
+
+  const complianceData = [
+    { name: 'Compliant', value: compliantCount },
+    { name: 'Non-Compliant', value: nonCompliantCount }
+  ];
+
+  const bucketOrder = ['<50', '50-70', '70-85', '85-95', '95-100'];
+  const bucketCounts = devices.reduce((acc, device) => {
+    const bucket = device.compliance_bucket || '<50';
+    acc[bucket] = (acc[bucket] || 0) + 1;
+    return acc;
+  }, {});
+  const bucketData = bucketOrder.map(bucket => ({
+    name: bucket + '%',
+    count: bucketCounts[bucket] || 0
+  }));
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-slate-600">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 md:p-8 space-y-8">
+      <div>
+        <h1 className="text-3xl font-bold text-slate-900 mb-2">Compliance Dashboard</h1>
+        <p className="text-slate-600">Real-time endpoint compliance overview</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Card className="border-slate-200 shadow-lg hover:shadow-xl transition-shadow duration-300">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-slate-600">Total Devices</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <div className="text-3xl font-bold text-slate-900">{totalDevices}</div>
+              <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+                <Monitor className="w-6 h-6 text-blue-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-lg hover:shadow-xl transition-shadow duration-300">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-slate-600">Avg % Passing</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <div className="text-3xl font-bold text-slate-900">{avgPercent}%</div>
+              <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+                <TrendingUp className="w-6 h-6 text-green-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-lg hover:shadow-xl transition-shadow duration-300">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-slate-600">Compliant</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <div className="text-3xl font-bold text-green-600">{compliantCount}</div>
+              <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+                <CheckCircle2 className="w-6 h-6 text-green-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-lg hover:shadow-xl transition-shadow duration-300">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-slate-600">Non-Compliant</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <div className="text-3xl font-bold text-red-600">{nonCompliantCount}</div>
+              <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center">
+                <XCircle className="w-6 h-6 text-red-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-6">
+        <Card className="border-slate-200 shadow-lg">
+          <CardHeader>
+            <CardTitle>Devices by Operating System</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={osData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="name" stroke="#64748b" />
+                <YAxis stroke="#64748b" />
+                <Tooltip />
+                <Bar dataKey="value" fill="#3b82f6" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-lg">
+          <CardHeader>
+            <CardTitle>Compliance Status Distribution</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={complianceData}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  outerRadius={100}
+                  fill="#8884d8"
+                  dataKey="value"
+                >
+                  <Cell fill="#10b981" />
+                  <Cell fill="#ef4444" />
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="border-slate-200 shadow-lg">
+        <CardHeader>
+          <CardTitle>Compliance Score Distribution</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={bucketData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+              <XAxis dataKey="name" stroke="#64748b" />
+              <YAxis stroke="#64748b" />
+              <Tooltip />
+              <Bar dataKey="count" fill="#8b5cf6" radius={[8, 8, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

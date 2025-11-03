@@ -1,0 +1,127 @@
+import React from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { Wrench } from "lucide-react";
+import ExportButton from "../components/ExportButton";
+
+export default function EndpointToolsPage() {
+  const { data: tools = [], isLoading } = useQuery({
+    queryKey: ['tools-latest'],
+    queryFn: async () => {
+      const uploads = await base44.entities.DataUpload.list('-created_date', 1);
+      if (uploads.length === 0) return [];
+      return base44.entities.EndpointTool.filter({ upload_id: uploads[0].id });
+    }
+  });
+
+  const exportColumns = [
+    { key: 'tool_name', label: 'Tool Name' },
+    { key: 'device_type', label: 'Device Type' },
+    { key: 'missing_count', label: 'Missing Count' },
+    { key: 'snapshot_date', label: 'Snapshot Date' }
+  ];
+
+  const uniqueTools = [...new Set(tools.map(t => t.tool_name))];
+  const chartData = uniqueTools.map(toolName => {
+    const entry = { tool: toolName };
+    tools.filter(t => t.tool_name === toolName).forEach(t => {
+      entry[t.device_type] = t.missing_count;
+    });
+    return entry;
+  });
+
+  const deviceTypes = [...new Set(tools.map(t => t.device_type))];
+  const colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'];
+
+  return (
+    <div className="p-6 md:p-8 space-y-6">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900 mb-2">Endpoint Tools</h1>
+          <p className="text-slate-600">Security tools coverage analysis</p>
+        </div>
+        <ExportButton 
+          data={tools}
+          filename="endpoint_tools"
+          columns={exportColumns}
+        />
+      </div>
+
+      <Card className="border-slate-200 shadow-lg">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Wrench className="w-5 h-5" />
+            Missing Tools by Device Type
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-slate-200">
+                  <th className="text-left p-3 text-sm font-semibold text-slate-700">Tool</th>
+                  <th className="text-left p-3 text-sm font-semibold text-slate-700">Device Type</th>
+                  <th className="text-right p-3 text-sm font-semibold text-slate-700">Missing Count</th>
+                </tr>
+              </thead>
+              <tbody>
+                {isLoading ? (
+                  <tr>
+                    <td colSpan="3" className="text-center p-8 text-slate-500">
+                      Loading tools data...
+                    </td>
+                  </tr>
+                ) : tools.length === 0 ? (
+                  <tr>
+                    <td colSpan="3" className="text-center p-8 text-slate-500">
+                      No missing tools data available
+                    </td>
+                  </tr>
+                ) : (
+                  tools.map((tool) => (
+                    <tr key={tool.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                      <td className="p-3 font-medium text-slate-900">{tool.tool_name}</td>
+                      <td className="p-3 text-slate-600">{tool.device_type}</td>
+                      <td className="p-3 text-right">
+                        <span className="text-red-600 font-semibold">{tool.missing_count}</span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {chartData.length > 0 && (
+        <Card className="border-slate-200 shadow-lg">
+          <CardHeader>
+            <CardTitle>Missing Tools Distribution</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={400}>
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="tool" stroke="#64748b" />
+                <YAxis stroke="#64748b" />
+                <Tooltip />
+                <Legend />
+                {deviceTypes.map((type, idx) => (
+                  <Bar 
+                    key={type} 
+                    dataKey={type} 
+                    fill={colors[idx % colors.length]} 
+                    radius={[8, 8, 0, 0]} 
+                  />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}

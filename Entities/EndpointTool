@@ -1,0 +1,31 @@
+{
+  "name": "EndpointTool",
+  "type": "object",
+  "properties": {
+    "tool_name": {
+      "type": "string",
+      "description": "Name of the security tool"
+    },
+    "device_type": {
+      "type": "string",
+      "description": "Type of devices missing this tool"
+    },
+    "missing_count": {
+      "type": "integer",
+      "description": "Number of devices missing this tool"
+    },
+    "upload_id": {
+      "type": "string",
+      "description": "ID of the upload batch"
+    },
+    "snapshot_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date of this snapshot"
+    }
+  },
+  "required": [
+    "tool_name",
+    "snapshot_date"
+  ]
+}

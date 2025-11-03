@@ -1,0 +1,327 @@
+import React, { useState, useCallback } from "react";
+import { base44 } from "@/api/base44Client";
+import { useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Upload as UploadIcon, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { format } from "date-fns";
+
+export default function UploadPage() {
+  const navigate = useNavigate();
+  const [file, setFile] = useState(null);
+  const [snapshotDate, setSnapshotDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [dragActive, setDragActive] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(false);
+
+  const handleDrag = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    
+    const droppedFile = e.dataTransfer.files[0];
+    if (droppedFile && droppedFile.name.endsWith('.xlsx')) {
+      setFile(droppedFile);
+      setError(null);
+    } else {
+      setError("Please upload an Excel file (.xlsx)");
+    }
+  }, []);
+
+  const handleFileInput = (e) => {
+    const selectedFile = e.target.files[0];
+    if (selectedFile) {
+      setFile(selectedFile);
+      setError(null);
+    }
+  };
+
+  const processUpload = async () => {
+    if (!file) {
+      setError("Please select a file first");
+      return;
+    }
+
+    setProcessing(true);
+    setProgress(10);
+    setError(null);
+
+    try {
+      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+      setProgress(30);
+
+      const deviceSchema = await base44.entities.Device.schema();
+      setProgress(40);
+
+      const result = await base44.integrations.Core.ExtractDataFromUploadedFile({
+        file_url,
+        json_schema: {
+          type: "object",
+          properties: {
+            devices: {
+              type: "array",
+              items: deviceSchema
+            }
+          }
+        }
+      });
+
+      setProgress(60);
+
+      if (result.status === "success" && result.output?.devices) {
+        const uploadRecord = await base44.entities.DataUpload.create({
+          file_name: file.name,
+          file_url,
+          snapshot_date: snapshotDate,
+          devices_processed: result.output.devices.length,
+          processing_status: "completed"
+        });
+
+        setProgress(70);
+
+        const devicesWithMetadata = result.output.devices.map(device => ({
+          ...device,
+          upload_id: uploadRecord.id,
+          snapshot_date: snapshotDate,
+          compliance_bucket: getComplianceBucket(device.percent_passing)
+        }));
+
+        await base44.entities.Device.bulkCreate(devicesWithMetadata);
+        setProgress(85);
+
+        const standards = aggregateStandards(devicesWithMetadata, uploadRecord.id, snapshotDate);
+        if (standards.length > 0) {
+          await base44.entities.Standard.bulkCreate(standards);
+        }
+        setProgress(95);
+
+        const tools = aggregateTools(devicesWithMetadata, uploadRecord.id, snapshotDate);
+        if (tools.length > 0) {
+          await base44.entities.EndpointTool.bulkCreate(tools);
+        }
+
+        setProgress(100);
+        setSuccess(true);
+        
+        setTimeout(() => {
+          navigate(createPageUrl("Dashboard"));
+        }, 2000);
+      } else {
+        throw new Error("Failed to extract data from file");
+      }
+    } catch (err) {
+      setError(err.message || "Failed to process file");
+      setProcessing(false);
+    }
+  };
+
+  const getComplianceBucket = (percent) => {
+    if (percent < 50) return "<50";
+    if (percent < 70) return "50-70";
+    if (percent < 85) return "70-85";
+    if (percent < 95) return "85-95";
+    return "95-100";
+  };
+
+  const aggregateStandards = (devices, uploadId, snapshotDate) => {
+    const groups = {};
+    
+    devices.forEach(device => {
+      const key = `${device.standard || 'Unknown'}|${device.profile || 'Unknown'}`;
+      if (!groups[key]) {
+        groups[key] = {
+          standard: device.standard || 'Unknown',
+          profile: device.profile || 'Unknown',
+          devices: [],
+          upload_id: uploadId,
+          snapshot_date: snapshotDate
+        };
+      }
+      groups[key].devices.push(device);
+    });
+
+    return Object.values(groups).map(group => ({
+      standard: group.standard,
+      profile: group.profile,
+      device_count: group.devices.length,
+      avg_percent_passing: group.devices.reduce((sum, d) => sum + (d.percent_passing || 0), 0) / group.devices.length,
+      upload_id: group.upload_id,
+      snapshot_date: group.snapshot_date
+    }));
+  };
+
+  const aggregateTools = (devices, uploadId, snapshotDate) => {
+    const groups = {};
+    
+    devices.forEach(device => {
+      if (device.missing_tools) {
+        const tools = device.missing_tools.split(',').map(t => t.trim()).filter(t => t);
+        tools.forEach(tool => {
+          const key = `${tool}|${device.device_type || 'Other'}`;
+          if (!groups[key]) {
+            groups[key] = {
+              tool_name: tool,
+              device_type: device.device_type || 'Other',
+              hostnames: new Set(),
+              upload_id: uploadId,
+              snapshot_date: snapshotDate
+            };
+          }
+          groups[key].hostnames.add(device.hostname);
+        });
+      }
+    });
+
+    return Object.values(groups).map(group => ({
+      tool_name: group.tool_name,
+      device_type: group.device_type,
+      missing_count: group.hostnames.size,
+      upload_id: group.upload_id,
+      snapshot_date: group.snapshot_date
+    }));
+  };
+
+  return (
+    <div className="min-h-screen p-6 md:p-8">
+      <div className="max-w-3xl mx-auto space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900 mb-2">Upload Compliance Data</h1>
+          <p className="text-slate-600">Import Excel exports to track endpoint compliance over time</p>
+        </div>
+
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {success && (
+          <Alert className="bg-green-50 border-green-200">
+            <CheckCircle2 className="h-4 w-4 text-green-600" />
+            <AlertDescription className="text-green-800">
+              Data processed successfully! Redirecting to dashboard...
+            </AlertDescription>
+          </Alert>
+        )}
+
+        <Card className="border-slate-200 shadow-lg">
+          <CardHeader>
+            <CardTitle>Upload Excel File</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="snapshot_date">Snapshot Date</Label>
+              <Input
+                id="snapshot_date"
+                type="date"
+                value={snapshotDate}
+                onChange={(e) => setSnapshotDate(e.target.value)}
+                disabled={processing}
+              />
+            </div>
+
+            <div
+              onDragEnter={handleDrag}
+              onDragLeave={handleDrag}
+              onDragOver={handleDrag}
+              onDrop={handleDrop}
+              className={`
+                border-2 border-dashed rounded-xl p-12 text-center transition-all duration-200
+                ${dragActive ? 'border-blue-500 bg-blue-50' : 'border-slate-300 hover:border-slate-400'}
+                ${processing ? 'opacity-50 pointer-events-none' : ''}
+              `}
+            >
+              <input
+                type="file"
+                accept=".xlsx"
+                onChange={handleFileInput}
+                className="hidden"
+                id="file-upload"
+                disabled={processing}
+              />
+              
+              {!file ? (
+                <label htmlFor="file-upload" className="cursor-pointer">
+                  <div className="w-16 h-16 mx-auto mb-4 bg-slate-100 rounded-full flex items-center justify-center">
+                    <FileSpreadsheet className="w-8 h-8 text-slate-600" />
+                  </div>
+                  <p className="text-lg font-medium text-slate-900 mb-2">
+                    Drop your Excel file here
+                  </p>
+                  <p className="text-sm text-slate-500 mb-4">
+                    or click to browse (.xlsx files only)
+                  </p>
+                  <Button variant="outline" type="button" disabled={processing}>
+                    <UploadIcon className="w-4 h-4 mr-2" />
+                    Select File
+                  </Button>
+                </label>
+              ) : (
+                <div>
+                  <div className="w-16 h-16 mx-auto mb-4 bg-green-100 rounded-full flex items-center justify-center">
+                    <CheckCircle2 className="w-8 h-8 text-green-600" />
+                  </div>
+                  <p className="text-lg font-medium text-slate-900 mb-2">{file.name}</p>
+                  <p className="text-sm text-slate-500">
+                    {(file.size / 1024 / 1024).toFixed(2)} MB
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {processing && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm text-slate-600">
+                  <span>Processing...</span>
+                  <span>{progress}%</span>
+                </div>
+                <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-gradient-to-r from-blue-600 to-blue-700 transition-all duration-300"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            <Button
+              onClick={processUpload}
+              disabled={!file || processing}
+              className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
+              size="lg"
+            >
+              {processing ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <UploadIcon className="w-4 h-4 mr-2" />
+                  Process & Upload
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}

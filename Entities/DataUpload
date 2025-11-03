@@ -1,0 +1,41 @@
+{
+  "name": "DataUpload",
+  "type": "object",
+  "properties": {
+    "file_name": {
+      "type": "string",
+      "description": "Name of uploaded file"
+    },
+    "file_url": {
+      "type": "string",
+      "description": "URL of uploaded file"
+    },
+    "snapshot_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date of this data snapshot"
+    },
+    "devices_processed": {
+      "type": "integer",
+      "description": "Number of device records processed"
+    },
+    "processing_status": {
+      "type": "string",
+      "enum": [
+        "processing",
+        "completed",
+        "failed"
+      ],
+      "default": "processing",
+      "description": "Status of file processing"
+    },
+    "error_message": {
+      "type": "string",
+      "description": "Error details if processing failed"
+    }
+  },
+  "required": [
+    "file_name",
+    "snapshot_date"
+  ]
+}

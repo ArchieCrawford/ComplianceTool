@@ -1,0 +1,37 @@
+{
+  "name": "Standard",
+  "type": "object",
+  "properties": {
+    "standard": {
+      "type": "string",
+      "description": "Compliance standard name"
+    },
+    "profile": {
+      "type": "string",
+      "description": "Standard profile"
+    },
+    "device_count": {
+      "type": "integer",
+      "description": "Number of devices using this standard/profile"
+    },
+    "avg_percent_passing": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Average compliance percentage"
+    },
+    "upload_id": {
+      "type": "string",
+      "description": "ID of the upload batch"
+    },
+    "snapshot_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date of this snapshot"
+    }
+  },
+  "required": [
+    "standard",
+    "snapshot_date"
+  ]
+}

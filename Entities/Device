@@ -1,0 +1,78 @@
+{
+  "name": "Device",
+  "type": "object",
+  "properties": {
+    "hostname": {
+      "type": "string",
+      "description": "Device hostname"
+    },
+    "device_type": {
+      "type": "string",
+      "enum": [
+        "Workstation",
+        "Server",
+        "AVD",
+        "Other"
+      ],
+      "description": "Type of device"
+    },
+    "os": {
+      "type": "string",
+      "description": "Operating system"
+    },
+    "last_login_user": {
+      "type": "string",
+      "description": "Last user logged into the device"
+    },
+    "compliance_status": {
+      "type": "string",
+      "enum": [
+        "Compliant",
+        "Non-Compliant"
+      ],
+      "description": "Overall compliance status"
+    },
+    "missing_tools": {
+      "type": "string",
+      "description": "Comma-separated list of missing security tools"
+    },
+    "standard": {
+      "type": "string",
+      "description": "Compliance standard (e.g., CIS, NIST)"
+    },
+    "profile": {
+      "type": "string",
+      "description": "Compliance profile (e.g., CIS Level 1)"
+    },
+    "percent_passing": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Percentage of compliance checks passing"
+    },
+    "compliance_bucket": {
+      "type": "string",
+      "enum": [
+        "<50",
+        "50-70",
+        "70-85",
+        "85-95",
+        "95-100"
+      ],
+      "description": "Compliance percentage bucket"
+    },
+    "upload_id": {
+      "type": "string",
+      "description": "ID of the upload batch this device belongs to"
+    },
+    "snapshot_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date of this compliance snapshot"
+    }
+  },
+  "required": [
+    "hostname",
+    "snapshot_date"
+  ]
+}
