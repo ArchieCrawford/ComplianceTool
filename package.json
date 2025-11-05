@@ -8,7 +8,9 @@
     "build": "vite build",
     "lint": "eslint . --ext js,jsx,ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
-    "prepare": "panda codegen"
+    "prepare": "panda codegen",
+    "import-and-db": "node scripts/build_db.cjs --in \"./reports;./uploads\" --out \"./src/data/devices.db\"",
+    "build-db-py": "python scripts/build_db.py --in \"./reports;./uploads\" --out \"./src/data/devices.db\""
   },
   "dependencies": {
     "@pandacss/dev": "^0.41.0",
